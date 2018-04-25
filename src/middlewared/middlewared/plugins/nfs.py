@@ -201,18 +201,18 @@ class SharingNFSService(CRUDService):
         await self.middleware.run_in_io_thread(self.validate_user_networks, other_shares, data, schema_name, verrors)
 
         for k in ["maproot", "mapall"]:
-            if not data[f"{k}_user"] and not bool(data[f"{k}_group"]):
+            if not data[f"{k}_user"] and not data[f"{k}_group"]:
                 pass
-            elif not data[f"{k}_user"] and bool(data[f"{k}_group"]):
+            elif not data[f"{k}_user"] and data[f"{k}_group"]:
                 verrors.add(f"{schema_name}.{k}_user", "This field is required when map group is specified")
-            elif data[f"{k}_user"] and not bool(data[f"{k}_group"]):
+            elif data[f"{k}_user"] and not data[f"{k}_group"]:
                 verrors.add(f"{schema_name}.{k}_group", "This field is required when map user is specified")
             else:
-                user = await self.middleware.call("user.query", [("id", "=", data[f"{k}_user"])])
+                user = await self.middleware.call("user.query", [("username", "=", data[f"{k}_user"])])
                 if not user:
                     verrors.add(f"{schema_name}.{k}_user", "User not found")
 
-                group = await self.middleware.call("group.query", [("id", "=", data[f"{k}_group"])])
+                group = await self.middleware.call("group.query", [("group", "=", data[f"{k}_group"])])
                 if not group:
                     verrors.add(f"{schema_name}.{k}_group", "Group not found")
 
@@ -229,8 +229,6 @@ class SharingNFSService(CRUDService):
         dev = None
         is_mountpoint = False
         for i, path in enumerate(data["paths"]):
-            parent = os.path.join(path, "..")
-
             stat = os.stat(path.encode("utf8"))
             if dev is None:
                 dev = stat.st_dev
@@ -239,9 +237,10 @@ class SharingNFSService(CRUDService):
                     verrors.add(f"{schema_name}.paths.{i}",
                                 "Paths for a NFS share must reside within the same filesystem")
 
+            parent = os.path.abspath(os.path.join(path, ".."))
             if os.stat(parent.encode("utf8")).st_dev != dev:
                 is_mountpoint = True
-                if len(data["paths"]) > 1:
+                if any(os.path.abspath(p).startswith(parent + "/") for p in data["paths"] if p != path):
                     verrors.add(f"{schema_name}.paths.{i}",
                                 "You cannot share a mount point and subdirectories all at once")
 
@@ -250,7 +249,7 @@ class SharingNFSService(CRUDService):
 
     @private
     def validate_user_networks(self, other_shares, data, schema_name, verrors):
-        dev = os.stat(data["paths"][0].encode("utf8"))
+        dev = os.stat(data["paths"][0].encode("utf8")).st_dev
 
         used_networks = []
         for share in other_shares:
@@ -272,7 +271,7 @@ class SharingNFSService(CRUDService):
                     other_network = ipaddress.ip_network(other_network, strict=True)
                 except Exception:
                     self.logger.warning("Got invalid network %r", other_network)
-                    other_network = ipaddress.ip_network("0.0.0.0/0", strict=True)
+                    continue
 
                 if network.overlaps(other_network) and dev == other_dev:
                     verrors.add(f"{schema_name}.networks.{i}",

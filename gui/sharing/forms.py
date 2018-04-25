@@ -179,7 +179,7 @@ class AFP_ShareForm(MiddlewareModelForm, ModelForm):
 
 class NFS_ShareForm(MiddlewareModelForm, ModelForm):
     middleware_attr_prefix = "nfs_"
-    middleware_attr_schema = "nfs"
+    middleware_attr_schema = "sharingnfs"
     middleware_plugin = "sharing.nfs"
     is_singletone = False
     middleware_attr_map = {
