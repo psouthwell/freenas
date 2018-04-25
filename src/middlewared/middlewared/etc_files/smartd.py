@@ -86,6 +86,8 @@ def get_smartd_schedule_piece(value, min, max):
 
 
 async def render(service, middleware):
+    smart_config = await middleware.call("datastore.query", "services.smart", None, {"get": True})
+
     disks = await middleware.call("datastore.sql", """
         SELECT *
         FROM storage_disk d
@@ -94,12 +96,14 @@ async def render(service, middleware):
         WHERE disk_togglesmart = 1 AND disk_expiretime IS NULL
     """)
 
+    disks = [dict(disk, **smart_config) for disk in disks]
+
     devices = await camcontrol_list()
     disks = await asyncio_map(functools.partial(annotate_disk_for_smart, devices), disks, 16)
 
     config = ""
     for disk in filter(None, disks):
-        config += get_smartd_config(disk)
+        config += get_smartd_config(disk) + "\n"
 
     with open("/usr/local/etc/smartd.conf", "w") as f:
         f.write(config)
